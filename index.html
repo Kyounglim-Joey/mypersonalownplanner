@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#3D405B" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Planner" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <title>Productivity Planner</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;800&family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; width: 100%; }
+    body { font-family: 'DM Sans', sans-serif; background: #FFFCF7; color: #2C2C2C; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+    input, textarea, select, button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #D4CFC6; border-radius: 3px; }
+    @media (max-width: 640px) { ::-webkit-scrollbar { display: none; } }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+
+// ==========================================
+// [1단계 & 2단계] Firebase 라이브러리 및 설정
+// ==========================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/12.12.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAWoK6hcA1DEppyd0pls74dpiQ98VjfHek",
+  authDomain: "myownpersonalplanner.firebaseapp.com",
+  projectId: "myownpersonalplanner",
+  storageBucket: "myownpersonalplanner.firebasestorage.app",
+  messagingSenderId: "920975789368",
+  appId: "1:920975789368:web:7a55ead345bb14ace005cd",
+  measurementId: "G-RVHY7SL2VR"
+};
+
+// ==========================================
+// [3단계] DB 초기화
+// ==========================================
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const { useState, useEffect, useMemo } = React;
+
+// --- 기존 변수들 (변경 없음) ---
+const DAYS_LABEL=["월","화","수","목","금","토","일"];
+const DAYS_EN=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const DAYS_SHORT=["M","T","W","T","F","S","S"];
+const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const HABIT_COLORS=["#E07A5F","#3D405B","#81B29A","#F2CC8F","#6A8EAE","#A37774","#7B9E89","#D4A574","#8B7EC8","#5B8C85"];
+const BLOCK_OPTIONS=[{label:"10m",value:10},{label:"30m",value:30},{label:"60m",value:60}];
+function toMonIdx(jsDay){return(jsDay+6)%7}
+const FIXED_HOLIDAYS={"01-01":"신정","03-01":"삼일절","05-05":"어린이날","06-06":"현충일","08-15":"광복절","10-03":"개천절","10-09":"한글날","12-25":"크리스마스"};
+const LUNAR_HOLIDAYS={
+"2024-02-09":"설날 연휴","2024-02-10":"설날","2024-02-11":"설날 연휴","2024-02-12":"대체공휴일(설날)",
+"2024-05-15":"석가탄신일",
+"2024-09-16":"추석 연휴","2024-09-17":"추석","2024-09-18":"추석 연휴",
+"2025-01-28":"설날 연휴","2025-01-29":"설날","2025-01-30":"설날 연휴",
+"2025-05-05":"석가탄신일",
+"2025-10-05":"추석 연휴","2025-10-06":"추석","2025-10-07":"추석 연휴","2025-10-08":"대체공휴일(추석)",
+"2026-02-16":"설날 연휴","2026-02-17":"설날","2026-02-18":"설날 연휴",
+"2026-05-25":"석가탄신일(대체공휴일)","2026-06-03":"지방 선거","2026-07-17":"제헌절(대체공휴일)",
+"2026-08-17":"광복절(대체공휴일)",
+"2026-09-24":"추석 연휴","2026-09-25":"추석","2026-09-26":"추석 연휴","2026-10-05":"개천절(대체공휴일)","2026-10-09":"한글날"
+};
+function getHoliday(dk){if(LUNAR_HOLIDAYS[dk])return LUNAR_HOLIDAYS[dk];const mm=dk.slice(5);if(FIXED_HOLIDAYS[mm])return FIXED_HOLIDAYS[mm];return null}
+function genId(){return Math.random().toString(36).substr(2,9)}
+function getWeekDates(base){const d=new Date(base);const mi=toMonIdx(d.getDay());const mon=new Date(d);mon.setDate(d.getDate()-mi);return Array.from({length:7},(_,i)=>{const dd=new Date(mon);dd.setDate(mon.getDate()+i);return dd})}
+function fmtKey(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function daysInMonth(y,m){return new Date(y,m+1,0).getDate()}
+function firstDayMon(y,m){return toMonIdx(new Date(y,m,1).getDay())}
+
+
+// ==========================================
+// [4단계] 기존 로컬 저장 로직을 DB 연동 로직으로 완전 교체!
+// ==========================================
+function usePersistedState(key, init) {
+  const [v, setV] = useState(init);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // 1) 앱이 처음 켜질 때: 클라우드 DB에서 데이터 불러오기
+  useEffect(() => {
+    const loadDataFromDB = async () => {
+      try {
+        const docRef = doc(db, "my_planner_data", key);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setV(docSnap.data().value); // DB에 데이터가 있으면 가져와서 화면에 세팅
+        }
+        setIsLoaded(true); // 로딩 완료 마크
+      } catch (error) {
+        console.error("데이터 불러오기 실패:", error);
+        setIsLoaded(true);
+      }
+    };
+    loadDataFromDB();
+  }, [key]);
+
+  // 2) 내가 일정을 추가하거나 지울 때: 클라우드 DB에 즉시 덮어쓰기 저장
+  useEffect(() => {
+    if (isLoaded) { // 초기 로딩이 끝난 상태에서만 저장 (안 그러면 빈 데이터로 덮어씌워짐)
+      try {
+        setDoc(doc(db, "my_planner_data", key), { value: v });
+      } catch (error) {
+        console.error("데이터 저장 실패:", error);
+      }
+    }
+  }, [key, v, isLoaded]);
+
+  return [v, setV];
+}
+
+
+// --- 아래부터는 UI 및 컴포넌트 (변경 없음) ---
+function useIsMobile(){const[m,setM]=useState(window.innerWidth<640);useEffect(()=>{const h=()=>setM(window.innerWidth<640);window.addEventListener('resize',h);return()=>window.removeEventListener('resize',h)},[]);return m}
+const inputStyle={width:"100%",padding:"10px 14px",border:"1px solid #D4CFC6",borderRadius:8,fontSize:14,fontFamily:"'DM Sans',sans-serif",background:"#FEFCF8",outline:"none",boxSizing:"border-box"};
+const btnP={padding:"10px 24px",background:"#3D405B",color:"#fff",border:"none",borderRadius:8,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontWeight:600};
+const btnS={padding:"10px 24px",background:"transparent",color:"#3D405B",border:"1px solid #D4CFC6",borderRadius:8,fontSize:14,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"};
+
+function Modal({isOpen,onClose,title,children}){
+if(!isOpen)return null;
+return(<div onClick={onClose} style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.4)",backdropFilter:"blur(4px)",padding:16}}>
+<div onClick={e=>e.stopPropagation()} style={{background:"#FFFCF7",borderRadius:16,padding:"24px",width:"100%",maxWidth:440,boxShadow:"0 24px 80px rgba(0,0,0,0.18)",border:"1px solid #E8E2D8",maxHeight:"85vh",overflowY:"auto"}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
+<h3 style={{margin:0,fontFamily:"'Playfair Display',serif",fontSize:18,color:"#2C2C2C"}}>{title}</h3>
+<button onClick={onClose} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:"#999",padding:"4px 8px"}}>×</button></div>
+{children}</div></div>)}
+
+function Label({children}){return<label style={{fontSize:12,fontWeight:600,color:"#666",fontFamily:"'DM Sans',sans-serif",display:"block",marginBottom:4}}>{children}</label>}
+
+function MonthlyTab({events,setEvents}){
+const isMobile=useIsMobile();
+const[cur,setCur]=useState(new Date());
+const[modal,setModal]=useState(false);
+const[selDay,setSelDay]=useState(null);
+const[form,setForm]=useState({title:"",time:"09:00",color:"#E07A5F",note:""});
+const[editId,setEditId]=useState(null);
+const y=cur.getFullYear(),m=cur.getMonth();
+const dim=daysInMonth(y,m),fd=firstDayMon(y,m);
+const today=new Date();
+const openAdd=day=>{setSelDay(day);setForm({title:"",time:"09:00",color:"#E07A5F",note:""});setEditId(null);setModal(true)};
+const openEdit=(ev,e)=>{e.stopPropagation();setSelDay(parseInt(ev.dateKey.split("-")[2]));setForm({title:ev.title,time:ev.time,color:ev.color,note:ev.note||""});setEditId(ev.id);setModal(true)};
+const save=()=>{if(!form.title.trim())return;const dk=fmtKey(new Date(y,m,selDay));if(editId)setEvents(p=>p.map(e=>e.id===editId?{...e,...form,dateKey:dk}:e));else setEvents(p=>[...p,{id:genId(),dateKey:dk,...form}]);setModal(false)};
+const del=()=>{setEvents(p=>p.filter(e=>e.id!==editId));setModal(false)};
+const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
+const maxEvts=isMobile?2:3;
+return(<div>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:isMobile?16:24}}>
+<button onClick={()=>setCur(new Date(y,m-1,1))} style={{...btnS,padding:"8px 14px"}}>‹</button>
+<h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?20:26,fontWeight:700,color:"#2C2C2C",margin:0}}>{MONTHS[m]} {y}</h2>
+<button onClick={()=>setCur(new Date(y,m+1,1))} style={{...btnS,padding:"8px 14px"}}>›</button></div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+{DAYS_LABEL.map((d,i)=>(<div key={d+i} style={{textAlign:"center",padding:"6px 0",fontSize:isMobile?11:12,fontWeight:700,color:i===5?"#6A8EAE":i===6?"#E07A5F":"#888",fontFamily:"'DM Sans',sans-serif",textTransform:"uppercase",letterSpacing:1}}>{d}</div>))}
+</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:isMobile?2:3}}>
+{cells.map((day,i)=>{
+if(!day)return<div key={`e${i}`} style={{minHeight:isMobile?52:100}}/>;
+const dateObj=new Date(y,m,day);const dk=fmtKey(dateObj);
+const evts=events.filter(e=>e.dateKey===dk);
+const isToday=today.getFullYear()===y&&today.getMonth()===m&&today.getDate()===day;
+const colIdx=i%7;const isSat=colIdx===5;const isSun=colIdx===6;
+const holiday=getHoliday(dk);
+return(<div key={day} onClick={()=>openAdd(day)} style={{minHeight:isMobile?52:100,padding:isMobile?"4px 3px":"6px 8px",borderRadius:isMobile?6:10,cursor:"pointer",background:holiday?"#FFF5F5":isToday?"#F0EDE6":"#FEFCF8",border:isToday?"2px solid #3D405B":holiday?"1px solid #F5D5D5":"1px solid #EDE9E0"}}>
+<span style={{fontSize:isMobile?11:13,fontWeight:isToday?800:500,color:(isSun||holiday)?"#E07A5F":isSat?"#6A8EAE":"#2C2C2C",fontFamily:"'DM Sans',sans-serif"}}>{day}</span>
+{holiday&&<div style={{fontSize:isMobile?8:10,color:"#E07A5F",fontWeight:700,fontFamily:"'DM Sans',sans-serif",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{holiday}</div>}
+<div style={{marginTop:1}}>
+{evts.slice(0,maxEvts).map(ev=>(<div key={ev.id} onClick={e=>openEdit(ev,e)} style={{fontSize:isMobile?9:11,padding:isMobile?"2px 3px":"3px 6px",borderRadius:3,marginBottom:1,background:ev.color+"22",color:ev.color,fontWeight:600,fontFamily:"'DM Sans',sans-serif",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",borderLeft:`2px solid ${ev.color}`}}>{isMobile?ev.title.slice(0,6):`${ev.time} ${ev.title}`}</div>))}
+{evts.length>maxEvts&&<div style={{fontSize:9,color:"#999",textAlign:"center"}}>+{evts.length-maxEvts}</div>}
+</div></div>)})}
+</div>
+<Modal isOpen={modal} onClose={()=>setModal(false)} title={editId?"일정 수정":"새 일정"}>
+<div style={{display:"flex",flexDirection:"column",gap:14}}>
+<div><Label>제목</Label><input style={inputStyle} value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="일정 제목"/></div>
+<div style={{display:"flex",gap:12}}>
+<div style={{flex:1}}><Label>시간</Label><input style={inputStyle} type="time" value={form.time} onChange={e=>setForm(p=>({...p,time:e.target.value}))}/></div>
+<div style={{flex:1}}><Label>색상</Label><div style={{display:"flex",gap:6,marginTop:4}}>{HABIT_COLORS.slice(0,5).map(c=>(<div key={c} onClick={()=>setForm(p=>({...p,color:c}))} style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?"3px solid #2C2C2C":"3px solid transparent"}}/>))}</div></div></div>
+<div><Label>메모</Label><textarea style={{...inputStyle,minHeight:60,resize:"vertical"}} value={form.note} onChange={e=>setForm(p=>({...p,note:e.target.value}))} placeholder="메모 (선택)"/></div>
+<div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
+{editId&&<button onClick={del} style={{...btnS,color:"#E07A5F",borderColor:"#E07A5F"}}>삭제</button>}
+<button onClick={save} style={btnP}>저장</button></div></div></Modal></div>)}
+
+function WeeklyTab({weeklyItems,setWeeklyItems,habits,setHabits,habitLogs,setHabitLogs}){
+const isMobile=useIsMobile();
+const[weekOff,setWeekOff]=useState(0);
+const[blockSize,setBlockSize]=useState(30);
+const[modal,setModal]=useState(false);
+const[mType,setMType]=useState("fixed");
+const[form,setForm]=useState({title:"",startTime:"09:00",endTime:"09:30",color:"#3D405B",days:[]});
+const[editId,setEditId]=useState(null);
+const base=new Date();base.setDate(base.getDate()+weekOff*7);
+const weekDates=getWeekDates(base);const todayKey=fmtKey(new Date());
+const hours=[];for(let h=6;h<=23;h++)hours.push(h);
+const slotsPerHour=60/blockSize;
+const slotH=blockSize===10?20:blockSize===30?36:56;
+
+const openAddFixed=(mi,hour,si)=>{const sH=hour,sM=si*blockSize,eM=sM+blockSize,eH=sH+Math.floor(eM/60);
+setForm({title:"",color:"#6A8EAE",startTime:`${String(sH).padStart(2,'0')}:${String(sM).padStart(2,'0')}`,endTime:`${String(eH).padStart(2,'0')}:${String(eM%60).padStart(2,'0')}`,days:[mi]});setMType("fixed");setEditId(null);setModal(true)};
+const openAddHabit=()=>{setForm({title:"",color:HABIT_COLORS[habits.length%HABIT_COLORS.length],startTime:"",endTime:"",days:[0,1,2,3,4]});setMType("habit");setEditId(null);setModal(true)};
+const openAddFixedNew=()=>{setForm({title:"",color:"#6A8EAE",startTime:"09:00",endTime:"10:00",days:[]});setMType("fixed");setEditId(null);setModal(true)};
+const openEdit=(item,e)=>{e.stopPropagation();setForm({title:item.title,color:item.color,startTime:item.startTime||"",endTime:item.endTime||"",days:item.days||[]});setMType(item.type);setEditId(item.id);setModal(true)};
+const save=()=>{if(!form.title.trim())return;const item={id:editId||genId(),type:mType,...form};
+if(mType==="habit"){if(editId)setHabits(p=>p.map(h=>h.id===editId?item:h));else setHabits(p=>[...p,item])}
+else{if(editId)setWeeklyItems(p=>p.map(w=>w.id===editId?item:w));else setWeeklyItems(p=>[...p,item])}
+setModal(false)};
+const del=()=>{if(mType==="habit"){setHabits(p=>p.filter(h=>h.id!==editId));setHabitLogs(p=>{const n={...p};delete n[editId];return n})}else{setWeeklyItems(p=>p.filter(w=>w.id!==editId))}setModal(false)};
+const toggleLog=(hid,dk)=>{setHabitLogs(p=>{const logs=p[hid]||{};return{...p,[hid]:{...logs,[dk]:!logs[dk]}}})};
+const getItems=(mi,hour)=>{const all=[...weeklyItems.map(w=>({...w,type:"fixed"})),...habits.map(h=>({...h,type:"habit"}))];return all.filter(item=>{if(!item.days?.includes(mi)||!item.startTime)return false;return parseInt(item.startTime.split(":")[0])===hour})};
+const[mobileDay,setMobileDay]=useState(toMonIdx(new Date().getDay()));
+
+return(<div>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:8}}>
+<div style={{display:"flex",alignItems:"center",gap:8}}>
+<button onClick={()=>setWeekOff(w=>w-1)} style={{...btnS,padding:"8px 12px"}}>‹</button>
+<h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?15:20,fontWeight:700,color:"#2C2C2C",margin:0}}>
+{MONTHS[weekDates[0].getMonth()].slice(0,3)} {weekDates[0].getDate()} – {MONTHS[weekDates[6].getMonth()].slice(0,3)} {weekDates[6].getDate()}</h2>
+<button onClick={()=>setWeekOff(w=>w+1)} style={{...btnS,padding:"8px 12px"}}>›</button>
+{weekOff!==0&&<button onClick={()=>setWeekOff(0)} style={{...btnS,padding:"6px 10px",fontSize:11}}>Today</button>}</div>
+<div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+<div style={{display:"flex",borderRadius:8,overflow:"hidden",border:"1px solid #D4CFC6"}}>
+{BLOCK_OPTIONS.map(o=>(<button key={o.value} onClick={()=>setBlockSize(o.value)} style={{padding:isMobile?"5px 10px":"6px 14px",border:"none",cursor:"pointer",background:blockSize===o.value?"#3D405B":"transparent",color:blockSize===o.value?"#fff":"#666",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>{o.label}</button>))}</div>
+<button onClick={openAddFixedNew} style={{...btnP,padding:"7px 12px",fontSize:12,background:"#6A8EAE"}}>+ 고정</button>
+<button onClick={openAddHabit} style={{...btnP,padding:"7px 12px",fontSize:12,background:"#81B29A"}}>+ 습관</button></div></div>
+
+<div style={{display:"flex",gap:16,marginBottom:12,fontSize:12,fontFamily:"'DM Sans',sans-serif",color:"#888"}}>
+<div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:14,height:14,borderRadius:3,background:"#6A8EAE33",borderLeft:"3px solid #6A8EAE"}}/><span>고정 일정</span></div>
+<div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:14,height:14,borderRadius:3,background:"repeating-linear-gradient(135deg,#81B29A33,#81B29A33 3px,#81B29A11 3px,#81B29A11 6px)",borderLeft:"3px solid #81B29A"}}/><span>습관</span></div></div>
+
+{habits.length>0&&(<div style={{marginBottom:14,padding:isMobile?"10px 12px":"14px 18px",background:"#F7F5F0",borderRadius:12,border:"1px solid #EDE9E0"}}>
+<div style={{fontSize:10,fontWeight:700,color:"#81B29A",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>◆ 습관 트래커</div>
+<div style={{display:"flex",flexDirection:"column",gap:8}}>
+{habits.map(h=>(<div key={h.id} style={{display:"flex",alignItems:"center",gap:8}}>
+<div onClick={e=>openEdit(h,e)} style={{width:isMobile?72:120,fontSize:isMobile?11:13,fontWeight:600,color:h.color,fontFamily:"'DM Sans',sans-serif",cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{h.title}</div>
+<div style={{display:"flex",gap:3,flex:1}}>
+{weekDates.map((d,mi)=>{const dk=fmtKey(d);const active=h.days?.includes(mi);const done=habitLogs[h.id]?.[dk];
+return(<div key={dk} onClick={()=>active&&toggleLog(h.id,dk)} style={{flex:1,height:isMobile?28:32,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",background:done?h.color:active?h.color+"15":"#F0EDE6",color:done?"#fff":active?h.color:"#ccc",cursor:active?"pointer":"default",fontSize:isMobile?12:14,fontWeight:700,border:dk===todayKey?`2px solid ${h.color}`:"none"}}>{done?"✓":active?DAYS_SHORT[mi]:"·"}</div>)})}</div></div>))}</div></div>)}
+
+{weeklyItems.length>0&&(<div style={{marginBottom:14,padding:isMobile?"10px 12px":"14px 18px",background:"#F5F8FA",borderRadius:12,border:"1px solid #DDE6ED"}}>
+<div style={{fontSize:10,fontWeight:700,color:"#6A8EAE",textTransform:"uppercase",letterSpacing:1,marginBottom:8,fontFamily:"'DM Sans',sans-serif"}}>■ 고정 일정</div>
+<div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+{weeklyItems.map(w=>(<div key={w.id} onClick={e=>openEdit(w,e)} style={{padding:"5px 10px",borderRadius:6,fontSize:12,cursor:"pointer",background:(w.color||"#6A8EAE")+"18",color:w.color||"#6A8EAE",fontWeight:600,fontFamily:"'DM Sans',sans-serif",border:`1px solid ${(w.color||"#6A8EAE")}33`,display:"flex",alignItems:"center",gap:6}}>
+<span>{w.title}</span><span style={{fontSize:10,opacity:0.7}}>{w.startTime}–{w.endTime}</span><span style={{fontSize:10,opacity:0.5}}>{w.days?.map(d=>DAYS_SHORT[d]).join("")}</span></div>))}</div></div>)}
+
+{isMobile&&(<div style={{display:"flex",gap:3,marginBottom:10}}>
+{weekDates.map((d,mi)=>{const isToday=fmtKey(d)===todayKey;const isSel=mobileDay===mi;
+return(<button key={mi} onClick={()=>setMobileDay(mi)} style={{flex:1,padding:"6px 0",borderRadius:8,border:"none",cursor:"pointer",background:isSel?"#3D405B":isToday?"#F0EDE6":"transparent",color:isSel?"#fff":"#2C2C2C",fontFamily:"'DM Sans',sans-serif",fontSize:11,fontWeight:700}}>
+<div>{DAYS_SHORT[mi]}</div><div style={{fontSize:14}}>{d.getDate()}</div></button>)})}</div>)}
+
+<div style={{overflowX:isMobile?"hidden":"auto",overflowY:"auto",maxHeight:"55vh",borderRadius:12,border:"1px solid #EDE9E0"}}>
+<div style={{display:"grid",gridTemplateColumns:isMobile?"44px 1fr":"56px repeat(7,1fr)",minWidth:isMobile?"auto":700}}>
+{!isMobile&&<>{<div style={{background:"#F7F5F0",borderBottom:"2px solid #EDE9E0",padding:"10px 0",position:"sticky",top:0,zIndex:2}}/>}
+{weekDates.map((d,mi)=>{const isToday=fmtKey(d)===todayKey;const isSat=mi===5;const isSun=mi===6;
+return(<div key={mi} style={{background:isToday?"#3D405B":"#F7F5F0",borderBottom:"2px solid #EDE9E0",padding:"8px 4px",textAlign:"center",position:"sticky",top:0,zIndex:2}}>
+<div style={{fontSize:11,fontWeight:700,color:isToday?"#fff9":isSun?"#E07A5F":isSat?"#6A8EAE":"#999",fontFamily:"'DM Sans',sans-serif"}}>{DAYS_LABEL[mi]}</div>
+<div style={{fontSize:18,fontWeight:800,color:isToday?"#fff":isSun?"#E07A5F":isSat?"#6A8EAE":"#2C2C2C",fontFamily:"'Playfair Display',serif"}}>{d.getDate()}</div></div>)})}</>}
+
+{hours.map(hour=>Array.from({length:slotsPerHour}).map((_,si)=>{
+const isFirst=si===0;const visibleDays=isMobile?[mobileDay]:[0,1,2,3,4,5,6];
+return(<React.Fragment key={`${hour}-${si}`}>
+<div style={{borderRight:"1px solid #EDE9E0",borderBottom:"1px solid #F0EDE6",padding:"2px 4px",textAlign:"right",fontSize:10,color:isFirst?"#999":"transparent",fontFamily:"'DM Sans',sans-serif",fontWeight:500,height:slotH,display:"flex",alignItems:"flex-start",justifyContent:"flex-end",background:"#FEFCF8"}}>{isFirst&&`${hour}:00`}</div>
+{visibleDays.map(mi=>{const items=isFirst?getItems(mi,hour):[];const dk=fmtKey(weekDates[mi]);
+return(<div key={mi} onClick={()=>openAddFixed(mi,hour,si)} style={{borderRight:(!isMobile&&mi<6)?"1px solid #F0EDE6":"none",borderBottom:"1px solid #F0EDE6",padding:1,cursor:"pointer",position:"relative",height:slotH,background:dk===todayKey?"#F8F6F1":"transparent"}}>
+{items.map(item=>{const sH2=parseInt(item.startTime.split(":")[0]),sM2=parseInt(item.startTime.split(":")[1]),eH2=parseInt(item.endTime?.split(":")[0]||sH2),eM2=parseInt(item.endTime?.split(":")[1]||sM2+blockSize);
+const dur=(eH2*60+eM2)-(sH2*60+sM2);const span=Math.max(1,dur/blockSize);const isHab=item.type==="habit";
+return(<div key={item.id} onClick={e=>openEdit(item,e)} style={{position:"absolute",top:1,left:2,right:2,height:span*slotH-4,background:isHab?`repeating-linear-gradient(135deg,${item.color}30,${item.color}30 4px,${item.color}12 4px,${item.color}12 8px)`:item.color+"22",borderLeft:`3px solid ${item.color}`,borderRadius:5,padding:"3px 6px",fontSize:11,color:item.color,fontWeight:600,fontFamily:"'DM Sans',sans-serif",overflow:"hidden",zIndex:1,cursor:"pointer"}}>
+<div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{isHab?"◆ ":"■ "}{item.title}</div>
+{span>1&&<div style={{fontSize:10,opacity:0.7,marginTop:1}}>{item.startTime}–{item.endTime}</div>}</div>)})}</div>)})}</React.Fragment>)})).flat()}</div></div>
+
+<Modal isOpen={modal} onClose={()=>setModal(false)} title={editId?(mType==="habit"?"습관 수정":"고정 일정 수정"):(mType==="habit"?"새 습관":"새 고정 일정")}>
+<div style={{display:"flex",flexDirection:"column",gap:14}}>
+<div style={{display:"flex",gap:8}}>
+<div style={{padding:"4px 12px",borderRadius:20,fontSize:12,fontWeight:700,background:mType==="fixed"?"#6A8EAE22":"#81B29A22",color:mType==="fixed"?"#6A8EAE":"#81B29A",fontFamily:"'DM Sans',sans-serif"}}>{mType==="fixed"?"■ 고정 일정":"◆ 습관"}</div></div>
+<div><Label>제목</Label><input style={inputStyle} value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder={mType==="habit"?"예: 아침 명상":"예: 팀 회의"}/></div>
+<div style={{display:"flex",gap:12}}>
+<div style={{flex:1}}><Label>시작 시간</Label><input style={inputStyle} type="time" value={form.startTime} onChange={e=>setForm(p=>({...p,startTime:e.target.value}))}/></div>
+<div style={{flex:1}}><Label>종료 시간</Label><input style={inputStyle} type="time" value={form.endTime} onChange={e=>setForm(p=>({...p,endTime:e.target.value}))}/></div></div>
+<div><Label>요일</Label><div style={{display:"flex",gap:5}}>
+{DAYS_LABEL.map((d,i)=>(<button key={i} onClick={()=>setForm(p=>({...p,days:p.days.includes(i)?p.days.filter(x=>x!==i):[...p.days,i]}))} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",background:form.days.includes(i)?form.color:"#F0EDE6",color:form.days.includes(i)?"#fff":i===5?"#6A8EAE":i===6?"#E07A5F":"#999",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>{d}</button>))}</div></div>
+<div><Label>색상</Label><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+{HABIT_COLORS.map(c=>(<div key={c} onClick={()=>setForm(p=>({...p,color:c}))} style={{width:26,height:26,borderRadius:"50%",background:c,cursor:"pointer",border:form.color===c?"3px solid #2C2C2C":"3px solid transparent"}}/>))}</div></div>
+<div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:8}}>
+{editId&&<button onClick={del} style={{...btnS,color:"#E07A5F",borderColor:"#E07A5F"}}>삭제</button>}
+<button onClick={save} style={btnP}>저장</button></div></div></Modal></div>)}
+
+function StatsTab({habits,habitLogs}){
+const isMobile=useIsMobile();const[range,setRange]=useState("week");const today=new Date();
+const dates=useMemo(()=>{const arr=[],count=range==="week"?7:30;for(let i=count-1;i>=0;i--){const d=new Date(today);d.setDate(today.getDate()-i);arr.push(d)}return arr},[range]);
+const getStats=h=>{let total=0,done=0;dates.forEach(d=>{const mi=toMonIdx(d.getDay());if(h.days?.includes(mi)){total++;if(habitLogs[h.id]?.[fmtKey(d)])done++}});return{total,done,rate:total>0?Math.round(done/total*100):0}};
+const overall=useMemo(()=>{let t=0,d=0;habits.forEach(h=>{const s=getStats(h);t+=s.total;d+=s.done});return{total:t,done:d,rate:t>0?Math.round(d/t*100):0}},[habits,habitLogs,range]);
+const streaks=useMemo(()=>habits.map(h=>{let streak=0;for(let i=0;i<90;i++){const d=new Date(today);d.setDate(today.getDate()-i);const mi=toMonIdx(d.getDay());if(!h.days?.includes(mi))continue;if(habitLogs[h.id]?.[fmtKey(d)])streak++;else break}return{...h,streak}}),[habits,habitLogs]);
+
+if(!habits.length)return(<div style={{textAlign:"center",padding:"60px 20px"}}>
+<div style={{fontSize:48,marginBottom:16}}>📊</div>
+<h3 style={{fontFamily:"'Playfair Display',serif",color:"#2C2C2C",marginBottom:8}}>아직 습관이 없습니다</h3>
+<p style={{color:"#999",fontFamily:"'DM Sans',sans-serif",fontSize:14}}>주간 탭에서 습관을 추가하면 통계를 확인할 수 있습니다.</p></div>);
+
+return(<div>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+<div><h2 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?20:24,color:"#2C2C2C",margin:0}}>습관 통계</h2>
+<p style={{fontSize:12,color:"#999",marginTop:2,fontFamily:"'DM Sans',sans-serif"}}>습관(Habit)의 달성률만 집계합니다</p></div>
+<div style={{display:"flex",borderRadius:8,overflow:"hidden",border:"1px solid #D4CFC6"}}>
+{["week","month"].map(r=>(<button key={r} onClick={()=>setRange(r)} style={{padding:"7px 16px",border:"none",cursor:"pointer",background:range===r?"#3D405B":"transparent",color:range===r?"#fff":"#666",fontSize:12,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>{r==="week"?"7일":"30일"}</button>))}</div></div>
+
+<div style={{padding:isMobile?"20px":"28px 32px",borderRadius:16,marginBottom:24,background:"linear-gradient(135deg,#3D405B 0%,#5A5D7A 100%)",color:"#fff",display:"flex",alignItems:"center",gap:isMobile?16:28}}>
+<div style={{position:"relative",width:isMobile?80:100,height:isMobile?80:100,flexShrink:0}}>
+<svg viewBox="0 0 100 100" style={{transform:"rotate(-90deg)"}}>
+<circle cx="50" cy="50" r="42" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="8"/>
+<circle cx="50" cy="50" r="42" fill="none" stroke="#81B29A" strokeWidth="8" strokeLinecap="round" strokeDasharray={`${overall.rate*2.64} 264`} style={{transition:"stroke-dasharray 0.8s ease"}}/></svg>
+<div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?20:24,fontWeight:800,fontFamily:"'Playfair Display',serif"}}>{overall.rate}%</div></div>
+<div><div style={{fontSize:isMobile?16:20,fontWeight:700,fontFamily:"'Playfair Display',serif",marginBottom:4}}>전체 습관 달성률</div>
+<div style={{fontSize:13,opacity:0.8}}>{overall.done} / {overall.total} 완료</div></div></div>
+
+<div style={{display:"flex",flexDirection:"column",gap:14}}>
+{habits.map(h=>{const stats=getStats(h);const streak=streaks.find(s=>s.id===h.id)?.streak||0;
+return(<div key={h.id} style={{padding:isMobile?"16px":"20px 24px",borderRadius:14,background:"#FEFCF8",border:"1px solid #EDE9E0"}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+<div style={{display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:10,height:10,borderRadius:"50%",background:h.color}}/>
+<span style={{fontFamily:"'DM Sans',sans-serif",fontWeight:700,fontSize:14,color:"#2C2C2C"}}>◆ {h.title}</span></div>
+<div style={{display:"flex",gap:12,alignItems:"center"}}>
+{streak>0&&<span style={{fontSize:12,color:"#E07A5F",fontWeight:700}}>🔥 {streak}일 연속</span>}
+<span style={{fontSize:20,fontWeight:800,color:h.color,fontFamily:"'Playfair Display',serif"}}>{stats.rate}%</span></div></div>
+<div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"#999",marginBottom:6,fontFamily:"'DM Sans',sans-serif"}}>
+<span>달성: {stats.done}회</span><span>목표: {stats.total}회</span></div>
+<div style={{height:7,background:"#F0EDE6",borderRadius:4,overflow:"hidden",marginBottom:10}}>
+<div style={{height:"100%",borderRadius:4,background:h.color,width:`${stats.rate}%`,transition:"width 0.8s ease"}}/></div>
+<div style={{display:"flex",gap:2}}>
+{dates.map(d=>{const dk=fmtKey(d);const mi=toMonIdx(d.getDay());const active=h.days?.includes(mi);const done=habitLogs[h.id]?.[dk];
+return<div key={dk} style={{flex:1,height:18,borderRadius:2,background:done?h.color:active?h.color+"20":"#F0EDE6"}} title={`${dk}: ${done?"완료":active?"미완료":"-"}`}/>})}</div>
+<div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+<span style={{fontSize:9,color:"#bbb"}}>{range==="week"?"7일 전":"30일 전"}</span>
+<span style={{fontSize:9,color:"#bbb"}}>오늘</span></div></div>)})}</div></div>)}
+
+function App(){
+const isMobile=useIsMobile();
+const[tab,setTab]=useState("monthly");
+const[events,setEvents]=usePersistedState("planner_events",[]);
+const[weeklyItems,setWeeklyItems]=usePersistedState("planner_weekly",[]);
+const[habits,setHabits]=usePersistedState("planner_habits",[]);
+const[habitLogs,setHabitLogs]=usePersistedState("planner_logs",{});
+const tabs=[{id:"monthly",label:"월간",icon:"📅"},{id:"weekly",label:"주간",icon:"📋"},{id:"stats",label:"통계",icon:"📊"}];
+return(<div style={{minHeight:"100vh",background:"#FFFCF7"}}>
+<div style={{padding:isMobile?"16px 16px 0":"20px 28px 0",background:"linear-gradient(180deg,#F7F5F0 0%,#FFFCF7 100%)"}}>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+<div><h1 style={{fontFamily:"'Playfair Display',serif",fontSize:isMobile?22:28,fontWeight:800,margin:0,letterSpacing:"-0.5px",color:"#2C2C2C"}}>Planner</h1>
+<p style={{margin:"2px 0 0",fontSize:12,color:"#999",fontWeight:500}}>{new Date().toLocaleDateString("ko-KR",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}</p></div></div>
+<div style={{display:"flex",gap:2,borderBottom:"2px solid #EDE9E0"}}>
+{tabs.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:isMobile?"8px 16px":"10px 24px",border:"none",cursor:"pointer",background:"transparent",fontSize:isMobile?13:14,fontWeight:700,fontFamily:"'DM Sans',sans-serif",color:tab===t.id?"#3D405B":"#BBB",borderBottom:tab===t.id?"2px solid #3D405B":"2px solid transparent",marginBottom:-2,display:"flex",alignItems:"center",gap:5}}><span style={{fontSize:15}}>{t.icon}</span> {t.label}</button>))}</div></div>
+<div style={{padding:isMobile?"16px":"24px 28px 40px"}}>
+{tab==="monthly"&&<MonthlyTab events={events} setEvents={setEvents}/>}
+{tab==="weekly"&&<WeeklyTab weeklyItems={weeklyItems} setWeeklyItems={setWeeklyItems} habits={habits} setHabits={setHabits} habitLogs={habitLogs} setHabitLogs={setHabitLogs}/>}
+{tab==="stats"&&<StatsTab habits={habits} habitLogs={habitLogs}/>}</div></div>)}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+<script>
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/sw.js').catch(()=>{})})}
+</script>
+</body>
+</html>
